@@ -9,5 +9,9 @@ namespace Calculation.Service.Services
             int maxOrdersPerStation, 
             int numberOfStations, 
             int maxSkusPerRack);
+            
+        Task<double> CalculatePickToOrderHitRateAsync(
+            List<Order> orders, 
+            int maxSkusPerRack);
     }
 }
