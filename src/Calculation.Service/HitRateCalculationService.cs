@@ -100,24 +100,25 @@ namespace Calculation.Service.Services
             return hitRate;
         }
 
-        private List<OrderGroup> CreateOrderGroups(List<Order> orders)
+        private List<OrderGroup> CreateOrderGroups(List<Order> orders, int waveDurationHours)
         {
             return orders
-                .GroupBy(o => o.GetOrderId())
+                .GroupBy(o => new
+                {
+                    o.CustomerId,
+                    WaveStart = o.OrderDateTime.AddHours(-(o.OrderDateTime.Hour % waveDurationHours))
+                })
                 .Select(g => new OrderGroup
                 {
-                    OrderId = g.Key,
-                    CustomerId = g.First().CustomerId,
-                    OrderDateTime = g.First().GetOrderDateTime(),
+                    OrderId = $"{g.Key.CustomerId}_{g.Key.WaveStart:yyyyMMddHHmm}",
+                    OrderDateTime = g.Min(o => o.OrderDateTime),
                     OrderLines = g.Select(o => new OrderLine
                     {
                         Sku = o.Product,
-                        ProductCategory = o.ProductCategory,
-                        Quantity = o.Quantity,
-                        Sales = o.Sales
-                    }).ToList()
+                        Quantity = o.Quantity
+                    }).ToList(),
+                    UniqueSkus = g.Select(o => o.Product).Distinct().ToList()
                 })
-                .OrderBy(og => og.OrderDateTime)
                 .ToList();
         }
 
