@@ -260,21 +260,41 @@ namespace Calculation.Service.Services
         {
             foreach (var order in orderGroups)
             {
-                var station = stations.FirstOrDefault(s => s.CanTakeOrder);
-                if (station != null)
+                // Find a station that already has overlapping SKUs
+                var stationWithOverlap = stations
+                    .Where(s => s.AssignedOrders.Any())
+                    .OrderByDescending(s => s.AssignedOrders
+                        .SelectMany(o => o.UniqueSkus)
+                        .Intersect(order.UniqueSkus).Count())
+                    .FirstOrDefault();
+
+                Station targetStation = null;
+
+                if (stationWithOverlap != null && stationWithOverlap.CanTakeOrder)
                 {
-                    station.AssignedOrders.Add(order);
+                    targetStation = stationWithOverlap;
                 }
                 else
                 {
-                    // If all stations are full, assign to the station with the least orders
+                    // Otherwise, fall back to the first available station
+                    targetStation = stations.FirstOrDefault(s => s.CanTakeOrder);
+                }
+
+                if (targetStation != null)
+                {
+                    targetStation.AssignedOrders.Add(order);
+                }
+                else
+                {
+                    // If all stations are full, assign to least busy
                     var leastBusyStation = stations.OrderBy(s => s.AssignedOrders.Count).First();
                     leastBusyStation.AssignedOrders.Add(order);
-                    _logger.LogWarning("All stations at capacity, assigning order {OrderId} to station {StationId} with {OrderCount} orders", 
+                    _logger.LogWarning("All stations at capacity, assigning order {OrderId} to station {StationId} with {OrderCount} orders",
                         order.OrderId, leastBusyStation.StationId, leastBusyStation.AssignedOrders.Count);
                 }
             }
         }
+
 
         private List<RackPresentation> ProcessStation(Station station, List<Rack> racks)
         {
