@@ -5,6 +5,9 @@ services:
     ports:
       - "5672:5672"
       - "15672:15672"
+    labels:
+      - "dev.containers.forward-ports=15672"
+      - "dev.containers.port-visibility.15672=public"
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "ping"]
       interval: 30s
@@ -29,6 +32,9 @@ services:
       dockerfile: Dockerfile.orchestrator
     ports:
       - "5001:8080"
+    labels:
+      - "dev.containers.forward-ports=5001"
+      - "dev.containers.port-visibility.5001=public"
     depends_on:
       rabbitmq:
         condition: service_healthy
@@ -41,6 +47,9 @@ services:
       dockerfile: Dockerfile.gateway
     ports:
       - "5000:8080"
+    labels:
+      - "dev.containers.forward-ports=5000"
+      - "dev.containers.port-visibility.5000=public"
     depends_on:
       - orchestrator
     environment:
@@ -52,6 +61,9 @@ services:
       dockerfile: Dockerfile.ui
     ports:
       - "3000:80"
+    labels:
+      - "dev.containers.forward-ports=3000" 
+      - "dev.containers.port-visibility.3000=public"
     depends_on:
       - gateway
     volumes:

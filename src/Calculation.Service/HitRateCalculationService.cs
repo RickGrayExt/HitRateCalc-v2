@@ -42,13 +42,11 @@ namespace Calculation.Service.Services
                 allResults.Add(waveResult);
             }
 
-            // Calculate overall hit rate across all waves
-            var totalItemsPickedFromAllRacks = allResults.Sum(r => r.SumOfItemsPickedFromAllRacks);
-            var totalItems = allResults.Sum(r => r.TotalItems);
-
-            var overallHitRate = totalItems > 0 ? (double)totalItemsPickedFromAllRacks / totalItems : 0;
+            // Calculate overall hit rate as the average of all wave hit rates
+            // Each wave's hit rate is already the average units picked per rack presentation
+            var overallHitRate = allResults.Count > 0 ? allResults.Average(r => r.HitRate) : 0;
             
-            _logger.LogInformation("Pick-to-Order calculation complete. Hit rate: {HitRate}", overallHitRate);
+            _logger.LogInformation("Pick-to-Order calculation complete. Overall average hit rate: {HitRate}", overallHitRate);
             return overallHitRate;
         }
 
@@ -150,13 +148,14 @@ namespace Calculation.Service.Services
             result.TotalRackPresentations = rackPresentations.Count; // R in formula
             result.SumOfItemsPickedFromAllRacks = rackPresentations.Sum(rp => rp.ItemsPickedFromThisRack); // Σ(I_r_i)
             
-            // Apply the exact formula: HR = Σ(I_r_i) / T
-            result.HitRate = result.TotalItems > 0 
-                ? (double)result.SumOfItemsPickedFromAllRacks / result.TotalItems 
+            // NEW CALCULATION: Hit Rate = Average units picked per rack presentation
+            // HR = Σ(I_r_i) / R (where R is the number of rack presentations)
+            result.HitRate = result.TotalRackPresentations > 0 
+                ? (double)result.SumOfItemsPickedFromAllRacks / result.TotalRackPresentations 
                 : 0;
 
-            _logger.LogInformation("Wave processed: {TotalPresentations} presentations, {ItemsPicked} items picked from racks, {TotalItems} total items, Hit Rate: {HitRate}", 
-                result.TotalRackPresentations, result.SumOfItemsPickedFromAllRacks, result.TotalItems, result.HitRate);
+            _logger.LogInformation("Wave processed: {TotalPresentations} presentations, {ItemsPicked} items picked from racks, Average per presentation: {HitRate}", 
+                result.TotalRackPresentations, result.SumOfItemsPickedFromAllRacks, result.HitRate);
 
             return result;
         }
