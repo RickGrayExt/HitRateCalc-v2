@@ -7,7 +7,7 @@ services:
       - "15672:15672"
     labels:
       - "dev.containers.forward-ports=5672,15672"
-      - "dev.containers.port-visibility.5672=public"
+      - "dev.containers.port-visibility.5672=private"
       - "dev.containers.port-visibility.15672=public"
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "ping"]

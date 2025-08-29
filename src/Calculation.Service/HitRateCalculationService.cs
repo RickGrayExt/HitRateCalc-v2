@@ -17,14 +17,17 @@ namespace Calculation.Service.Services
             int numberOfStations, 
             int maxSkusPerRack)
         {
-            return await CalculatePickToOrderHitRateAsync(orders, maxSkusPerRack);
+            return await CalculatePickToOrderHitRateAsync(orders, maxSkusPerRack, maxOrdersPerStation, numberOfStations);
         }
 
         public async Task<double> CalculatePickToOrderHitRateAsync(
             List<Order> orders, 
-            int maxSkusPerRack)
+            int maxSkusPerRack,
+            int maxOrdersPerStation = int.MaxValue,
+            int numberOfStations = 1)
         {
-            _logger.LogInformation("Starting Pick-to-Order hit rate calculation with {OrderCount} orders", orders.Count);
+            _logger.LogInformation("Starting Pick-to-Order hit rate calculation with {OrderCount} orders, {MaxOrdersPerStation} max orders per station, {NumberOfStations} stations", 
+                orders.Count, maxOrdersPerStation, numberOfStations);
 
             // Create order groups
             var orderGroups = CreateOrderGroups(orders);
@@ -38,7 +41,7 @@ namespace Calculation.Service.Services
 
             foreach (var wave in waves)
             {
-                var waveResult = CalculatePickToOrderHitRateForWave(wave, maxSkusPerRack);
+                var waveResult = CalculatePickToOrderHitRateForWave(wave, maxSkusPerRack, maxOrdersPerStation, numberOfStations);
                 allResults.Add(waveResult);
             }
 
@@ -50,7 +53,11 @@ namespace Calculation.Service.Services
             return overallHitRate;
         }
 
-        private PickToOrderResult CalculatePickToOrderHitRateForWave(Wave wave, int maxSkusPerRack)
+        private PickToOrderResult CalculatePickToOrderHitRateForWave(
+            Wave wave, 
+            int maxSkusPerRack, 
+            int maxOrdersPerStation, 
+            int numberOfStations)
         {
             var result = new PickToOrderResult();
             
@@ -59,22 +66,138 @@ namespace Calculation.Service.Services
             
             // Create racks based on unique SKUs in the wave
             var racks = CreateRacksForWave(wave, maxSkusPerRack);
+            _logger.LogInformation("Created {RackCount} racks for wave", racks.Count);
+
+            // Allocate orders to stations
+            var stationAllocations = AllocateOrdersToStations(wave.OrderGroups, maxOrdersPerStation, numberOfStations);
+            _logger.LogInformation("Allocated orders to {StationCount} stations", stationAllocations.Count);
+
+            var allStationResults = new List<StationResult>();
+
+            // Process each station separately
+            foreach (var station in stationAllocations)
+            {
+                var stationResult = ProcessStation(station, racks);
+                allStationResults.Add(stationResult);
+                
+                _logger.LogInformation("Station {StationId}: {OrderCount} orders, {PresentationCount} presentations, {ItemsPicked} items picked", 
+                    station.StationId, station.Orders.Count, stationResult.RackPresentations.Count, stationResult.TotalItemsPicked);
+            }
+
+            // Aggregate results across all stations
+            result.RackPresentations = allStationResults.SelectMany(sr => sr.RackPresentations).ToList();
+            result.TotalRackPresentations = result.RackPresentations.Count;
+            result.SumOfItemsPickedFromAllRacks = allStationResults.Sum(sr => sr.TotalItemsPicked);
+            result.StationResults = allStationResults;
+
+            // Calculate hit rate as average units picked per rack presentation across all stations
+            result.HitRate = result.TotalRackPresentations > 0 
+                ? (double)result.SumOfItemsPickedFromAllRacks / result.TotalRackPresentations 
+                : 0;
+
+            _logger.LogInformation("Wave processed: {StationCount} stations, {TotalPresentations} total presentations, {ItemsPicked} total items picked, Average per presentation: {HitRate}", 
+                allStationResults.Count, result.TotalRackPresentations, result.SumOfItemsPickedFromAllRacks, result.HitRate);
+
+            return result;
+        }
+
+        private List<Station> AllocateOrdersToStations(List<OrderGroup> orderGroups, int maxOrdersPerStation, int numberOfStations)
+        {
+            var stations = new List<Station>();
             
-            // Track which orders have been fully processed
-            var remainingOrders = wave.OrderGroups.ToList();
-            var rackPresentations = new List<RackPresentation>();
+            // Initialize stations
+            for (int i = 1; i <= numberOfStations; i++)
+            {
+                stations.Add(new Station 
+                { 
+                    StationId = i, 
+                    Orders = new List<OrderGroup>(),
+                    MaxOrders = maxOrdersPerStation
+                });
+            }
+
+            // Strategy: Try to group orders with similar SKUs on the same station for better efficiency
+            var remainingOrders = orderGroups.ToList();
+            int currentStationIndex = 0;
+
+            while (remainingOrders.Any())
+            {
+                var currentStation = stations[currentStationIndex];
+                
+                // If station is at capacity, move to next station
+                if (currentStation.Orders.Count >= maxOrdersPerStation)
+                {
+                    currentStationIndex = (currentStationIndex + 1) % numberOfStations;
+                    
+                    // If all stations are full, we need to process in batches
+                    if (stations.All(s => s.Orders.Count >= maxOrdersPerStation))
+                    {
+                        _logger.LogWarning("All stations are at capacity. Processing current batch first.");
+                        break;
+                    }
+                    continue;
+                }
+
+                // Find the best order to add to current station (one with most SKU overlap)
+                var bestOrder = FindBestOrderForStation(currentStation, remainingOrders);
+                
+                currentStation.Orders.Add(bestOrder);
+                remainingOrders.Remove(bestOrder);
+
+                // Move to next station for better distribution
+                currentStationIndex = (currentStationIndex + 1) % numberOfStations;
+            }
+
+            // Remove empty stations
+            return stations.Where(s => s.Orders.Any()).ToList();
+        }
+
+        private OrderGroup FindBestOrderForStation(Station station, List<OrderGroup> availableOrders)
+        {
+            if (!station.Orders.Any())
+            {
+                // If station is empty, just take the first available order
+                return availableOrders.First();
+            }
+
+            // Find order with most SKU overlap with existing orders in the station
+            var stationSkus = station.Orders.SelectMany(o => o.UniqueSkus).Distinct().ToHashSet();
+            
+            var bestOrder = availableOrders
+                .Select(order => new
+                {
+                    Order = order,
+                    OverlapCount = order.UniqueSkus.Count(sku => stationSkus.Contains(sku))
+                })
+                .OrderByDescending(x => x.OverlapCount)
+                .ThenBy(x => x.Order.OrderDateTime) // Tie-breaker: earlier orders first
+                .First()
+                .Order;
+
+            return bestOrder;
+        }
+
+        private StationResult ProcessStation(Station station, List<Rack> racks)
+        {
+            var stationResult = new StationResult
+            {
+                StationId = station.StationId,
+                RackPresentations = new List<RackPresentation>()
+            };
+
+            // Track which orders have been fully processed at this station
+            var remainingOrders = station.Orders.ToList();
             int presentationId = 1;
 
-            // Continue until all orders are fulfilled
+            // Continue until all orders at this station are fulfilled
             while (remainingOrders.Any())
             {
                 // Find the rack that can fulfill the most items from remaining orders
                 var bestRackForRound = FindBestRackForCurrentOrders(racks, remainingOrders);
                 
-                if (bestRackForRound.rack == null)
+                if (bestRackForRound.rack == null || bestRackForRound.potentialItems == 0)
                 {
-                    // No more racks can fulfill any remaining orders - shouldn't happen in normal operation
-                    _logger.LogWarning("No rack found to fulfill remaining orders");
+                    _logger.LogWarning("No rack found to fulfill remaining orders at station {StationId}", station.StationId);
                     break;
                 }
 
@@ -82,6 +205,7 @@ namespace Calculation.Service.Services
                 {
                     RackId = bestRackForRound.rack.RackId,
                     PresentationId = presentationId++,
+                    StationId = station.StationId,
                     AvailableSkus = bestRackForRound.rack.Skus.ToList()
                 };
 
@@ -127,7 +251,7 @@ namespace Calculation.Service.Services
                 // Only add presentation if items were actually picked
                 if (itemsPickedFromThisPresentation > 0)
                 {
-                    rackPresentations.Add(presentation);
+                    stationResult.RackPresentations.Add(presentation);
                 }
 
                 // Remove fully fulfilled orders
@@ -139,25 +263,14 @@ namespace Calculation.Service.Services
                 // Safety check to prevent infinite loops
                 if (!ordersToRemove.Any() && remainingOrders.Any())
                 {
-                    _logger.LogWarning("Unable to fulfill remaining orders - some SKUs may not be available on any rack");
+                    _logger.LogWarning("Unable to fulfill remaining orders at station {StationId} - some SKUs may not be available on any rack", station.StationId);
                     break;
                 }
             }
 
-            result.RackPresentations = rackPresentations;
-            result.TotalRackPresentations = rackPresentations.Count; // R in formula
-            result.SumOfItemsPickedFromAllRacks = rackPresentations.Sum(rp => rp.ItemsPickedFromThisRack); // Σ(I_r_i)
+            stationResult.TotalItemsPicked = stationResult.RackPresentations.Sum(rp => rp.ItemsPickedFromThisRack);
             
-            // NEW CALCULATION: Hit Rate = Average units picked per rack presentation
-            // HR = Σ(I_r_i) / R (where R is the number of rack presentations)
-            result.HitRate = result.TotalRackPresentations > 0 
-                ? (double)result.SumOfItemsPickedFromAllRacks / result.TotalRackPresentations 
-                : 0;
-
-            _logger.LogInformation("Wave processed: {TotalPresentations} presentations, {ItemsPicked} items picked from racks, Average per presentation: {HitRate}", 
-                result.TotalRackPresentations, result.SumOfItemsPickedFromAllRacks, result.HitRate);
-
-            return result;
+            return stationResult;
         }
 
         private (Rack? rack, int potentialItems) FindBestRackForCurrentOrders(List<Rack> racks, List<OrderGroup> remainingOrders)
@@ -199,6 +312,7 @@ namespace Calculation.Service.Services
                 });
             }
 
+            _logger.LogInformation("Created {RackCount} racks with max {MaxSkus} SKUs per rack", racks.Count, maxSkusPerRack);
             return racks;
         }
 
@@ -264,5 +378,20 @@ namespace Calculation.Service.Services
 
             return waves;
         }
+    }
+
+    // Additional model classes you'll need to add to your Models namespace
+    public class Station
+    {
+        public int StationId { get; set; }
+        public List<OrderGroup> Orders { get; set; } = new List<OrderGroup>();
+        public int MaxOrders { get; set; }
+    }
+
+    public class StationResult
+    {
+        public int StationId { get; set; }
+        public List<RackPresentation> RackPresentations { get; set; } = new List<RackPresentation>();
+        public int TotalItemsPicked { get; set; }
     }
 }
