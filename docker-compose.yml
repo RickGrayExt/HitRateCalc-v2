@@ -6,13 +6,17 @@ services:
       - "5672:5672"
       - "15672:15672"
     labels:
-      - "dev.containers.forward-ports=15672"
+      - "dev.containers.forward-ports=5672,15672"
+      - "dev.containers.port-visibility.5672=public"
       - "dev.containers.port-visibility.15672=public"
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "ping"]
       interval: 30s
       timeout: 10s
       retries: 3
+    environment:
+      - RABBITMQ_DEFAULT_USER=admin
+      - RABBITMQ_DEFAULT_PASS=admin
 
   calculation:
     build:
@@ -40,6 +44,7 @@ services:
         condition: service_healthy
     environment:
       - ASPNETCORE_ENVIRONMENT=Development
+      - ASPNETCORE_URLS=http://0.0.0.0:8080
 
   gateway:
     build:
@@ -54,6 +59,7 @@ services:
       - orchestrator
     environment:
       - ASPNETCORE_ENVIRONMENT=Development
+      - ASPNETCORE_URLS=http://0.0.0.0:8080
 
   ui:
     build:
