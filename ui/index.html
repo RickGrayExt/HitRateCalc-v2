@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1"/>
+    <title>Hit Rate Calculator</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+
+        .container {
+            background-color: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+
+        h1 {
+            color: #2c3e50;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 600;
+            color: #34495e;
+        }
+
+        input[type="number"], input[type="text"] {
+            width: 100%;
+            padding: 10px;
+            border: 2px solid #ddd;
+            border-radius: 5px;
+            font-size: 16px;
+            transition: border-color 0.3s;
+        }
+
+        input[type="number"]:focus, input[type="text"]:focus {
+            border-color: #3498db;
+            outline: none;
+        }
+
+        button {
+            background-color: #3498db;
+            color: white;
+            padding: 12px 30px;
+            border: none;
+            border-radius: 5px;
+            font-size: 16px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+
+        button:hover {
+            background-color: #2980b9;
+        }
+
+        button:disabled {
+            background-color: #95a5a6;
+            cursor: not-allowed;
+        }
+
+        .results {
+            margin-top: 30px;
+            padding: 20px;
+            background-color: #ecf0f1;
+            border-radius: 5px;
+            display: none;
+        }
+
+        .results.show {
+            display: block;
+        }
+
+        .loading {
+            text-align: center;
+            color: #7f8c8d;
+            font-style: italic;
+        }
+
+        .error {
+            background-color: #e74c3c;
+            color: white;
+            padding: 10px;
+            border-radius: 5px;
+            margin-top: 10px;
+        }
+
+        .success {
+            background-color: #27ae60;
+            color: white;
+            padding: 15px;
+            border-radius: 5px;
+            margin-top: 20px;
+        }
+
+        .hit-rate {
+            font-size: 24px;
+            font-weight: bold;
+            text-align: center;
+            margin: 20px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Hit Rate Calculator</h1>
+        <form id="runForm">
+            <div class="form-group">
+                <label for="maxOrdersPerStation">Max Orders Per Station:</label>
+                <input type="number" id="maxOrdersPerStation" min="1" max="20" value="4" required />
+            </div>
+            
+            <div class="form-group">
+                <label for="numberOfStations">Number of Stations:</label>
+                <input type="number" id="numberOfStations" min="1" max="50" value="4" required />
+            </div>
+            
+            <div class="form-group">
+                <label for="maxSkusPerRack">Max SKUs per Rack:</label>
+                <input type="number" id="maxSkusPerRack" min="1" max="200" value="50" required />
+            </div>
+            
+            <div class="form-group">
+                <label for="datasetPath">Dataset Path:</label>
+                <input type="text" id="datasetPath" value="/app/data/DataSetClean.csv" required />
+            </div>
+            
+            <button type="submit" id="submitBtn">Start Calculation</button>
+        </form>
+
+        <div id="results" class="results">
+            <div id="loading" class="loading" style="display: none;">
+                Calculating hit rate... This may take a few moments.
+            </div>
+            <div id="error" class="error" style="display: none;"></div>
+            <div id="success" class="success" style="display: none;">
+                <div class="hit-rate" id="hitRateValue"></div>
+                <div id="calculationDetails"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const form = document.getElementById('runForm');
+        const submitBtn = document.getElementById('submitBtn');
+        const resultsDiv = document.getElementById('results');
+        const loadingDiv = document.getElementById('loading');
+        const errorDiv = document.getElementById('error');
+        const successDiv = document.getElementById('success');
+        const hitRateValue = document.getElementById('hitRateValue');
+        const calculationDetails = document.getElementById('calculationDetails');
+
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            // Reset UI state
+            resultsDiv.classList.add('show');
+            loadingDiv.style.display = 'block';
+            errorDiv.style.display = 'none';
+            successDiv.style.display = 'none';
+            submitBtn.disabled = true;
+            submitBtn.textContent = 'Calculating...';
+
+            try {
+                const formData = {
+                    maxOrdersPerStation: parseInt(document.getElementById('maxOrdersPerStation').value),
+                    numberOfStations: parseInt(document.getElementById('numberOfStations').value),
+                    maxSkusPerRack: parseInt(document.getElementById('maxSkusPerRack').value),
+                    datasetPath: document.getElementById('datasetPath').value,
+                    runId: generateGuid()
+                };
+
+                console.log('Starting calculation with parameters:', formData);
+
+                // Start the calculation
+                const response = await fetch('/api/run', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(formData)
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+
+                const startResult = await response.json();
+                console.log('Calculation started, runId:', startResult.runId);
+
+                // Poll for results
+                await pollForResults(startResult.runId);
+
+            } catch (error) {
+                console.error('Error:', error);
+                showError('Failed to start calculation: ' + error.message);
+            }
+        });
+
+        async function pollForResults(runId) {
+            const maxAttempts = 60; // 5 minutes maximum
+            let attempts = 0;
+
+            const poll = async () => {
+                try {
+                    const response = await fetch(`/api/result/${runId}`);
+                    
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+
+                    const result = await response.json();
+                    console.log('Poll result:', result);
+
+                    if (result.status === 'completed') {
+                        showSuccess(result.hitRate, runId);
+                        return;
+                    }
+
+                    attempts++;
+                    if (attempts >= maxAttempts) {
+                        throw new Error('Calculation timed out after 5 minutes');
+                    }
+
+                    // Continue polling every 5 seconds
+                    setTimeout(poll, 5000);
+                    
+                } catch (error) {
+                    console.error('Polling error:', error);
+                    showError('Error checking calculation status: ' + error.message);
+                }
+            };
+
+            // Start polling after a short delay
+            setTimeout(poll, 2000);
+        }
+
+        function showSuccess(hitRate, runId) {
+            loadingDiv.style.display = 'none';
+            successDiv.style.display = 'block';
+            
+            hitRateValue.textContent = `Hit Rate: ${hitRate.toFixed(4)} units per rack presentation`;
+            calculationDetails.innerHTML = `
+                <p><strong>Run ID:</strong> ${runId}</p>
+                <p><strong>Calculation completed successfully!</strong></p>
+                <p>This means that on average, ${hitRate.toFixed(2)} units can be picked from each rack presentation.</p>
+            `;
+            
+            resetForm();
+        }
+
+        function showError(message) {
+            loadingDiv.style.display = 'none';
+            errorDiv.style.display = 'block';
+            errorDiv.textContent = message;
+            resetForm();
+        }
+
+        function resetForm() {
+            submitBtn.disabled = false;
+            submitBtn.textContent = 'Start Calculation';
+        }
+
+        function generateGuid() {
+            return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+                const r = Math.random() * 16 | 0;
+                const v = c === 'x' ? r : (r & 0x3 | 0x8);
+                return v.toString(16);
+            });
+        }
+
+        // Add some basic validation
+        document.addEventListener('DOMContentLoaded', function() {
+            const numberInputs = document.querySelectorAll('input[type="number"]');
+            numberInputs.forEach(input => {
+                input.addEventListener('input', function() {
+                    if (this.value < 1) {
+                        this.value = 1;
+                    }
+                });
+            });
+        });
+    </script>
+</body>
+</html>
