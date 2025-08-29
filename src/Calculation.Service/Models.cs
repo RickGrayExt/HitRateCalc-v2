@@ -85,6 +85,22 @@ namespace Calculation.Service.Models
             .SelectMany(o => o.UniqueSkus)
             .Distinct()
             .ToList();
+        
+        // Add StationResults property that was missing
+        public List<RackPresentation> StationResults { get; set; } = new();
+    }
+
+    public class RackPresentation
+    {
+        public int RackId { get; set; }
+        public int StationId { get; set; }
+        public List<string> AvailableSkus { get; set; } = new();
+        public int UnitsPicked { get; set; }
+        public List<OrderGroup> FulfilledOrders { get; set; } = new();
+        
+        // Add additional properties that might be needed
+        public DateTime PresentationTime { get; set; } = DateTime.UtcNow;
+        public bool IsCompleted { get; set; }
     }
 
     public class HitRateResult
@@ -95,6 +111,10 @@ namespace Calculation.Service.Models
         public int TotalWaves { get; set; }
         public int TotalOrders { get; set; }
         public List<WaveResult> WaveResults { get; set; } = new();
+        
+        // Add calculation metadata
+        public DateTime CalculationDateTime { get; set; } = DateTime.UtcNow;
+        public TimeSpan CalculationDuration { get; set; }
     }
 
     public class WaveResult
@@ -105,36 +125,38 @@ namespace Calculation.Service.Models
         public int UnitsPickedInWave { get; set; }
         public int RackPresentationsInWave { get; set; }
         public double WaveHitRate { get; set; }
+        
+        // Add station results for the wave
+        public List<StationResult> StationResults { get; set; } = new();
+        public int TotalOrdersInWave { get; set; }
+        public List<string> UniqueSkusInWave { get; set; } = new();
     }
 
-    public class RackPresentation
+    // Add StationResult class that was referenced but missing
+    public class StationResult
     {
-        public int RackId { get; set; }
-        public int PresentationId { get; set; }
-        public List<string> AvailableSkus { get; set; } = new();
-        public int ItemsPickedFromThisRack { get; set; } // This is I_r_i in your formula
-        public List<PickedItem> PickedItems { get; set; } = new();
-    }
-
-    public class PickedItem
-    {
-        public string Sku { get; set; } = string.Empty;
-        public int Quantity { get; set; }
-        public string OrderId { get; set; } = string.Empty;
-    }
-
-    public class PickToOrderResult
-    {
-        public double HitRate { get; set; }
-        public int TotalItems { get; set; } // T in your formula
-        public int TotalRackPresentations { get; set; } // R in your formula
+        public int StationId { get; set; }
         public List<RackPresentation> RackPresentations { get; set; } = new();
-        public int SumOfItemsPickedFromAllRacks { get; set; } // Σ(I_r_i) in your formula
+        public int TotalUnitsPicked { get; set; }
+        public int TotalRackPresentations { get; set; }
+        public double StationHitRate { get; set; }
+        public List<OrderGroup> ProcessedOrders { get; set; } = new();
+        public TimeSpan ProcessingTime { get; set; }
     }
 
-    public enum PickingStrategy
+    // Add calculation summary class
+    public class CalculationSummary
     {
-        PickToOrder = 1,
-        PickToLine = 0
+        public Guid RunId { get; set; }
+        public double OverallHitRate { get; set; }
+        public int TotalOrders { get; set; }
+        public int TotalUnits { get; set; }
+        public int TotalRackPresentations { get; set; }
+        public int TotalWaves { get; set; }
+        public int TotalStations { get; set; }
+        public DateTime StartTime { get; set; }
+        public DateTime EndTime { get; set; }
+        public TimeSpan TotalProcessingTime { get; set; }
+        public List<WaveResult> WaveBreakdown { get; set; } = new();
     }
 }
