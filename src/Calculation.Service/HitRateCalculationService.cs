@@ -17,10 +17,17 @@ namespace Calculation.Service.Services
             int numberOfStations, 
             int maxSkusPerRack)
         {
-            return await CalculatePickToOrderHitRateAsync(orders, maxSkusPerRack, maxOrdersPerStation, numberOfStations);
+            return await CalculatePickToOrderHitRateWithStationsAsync(orders, maxSkusPerRack, maxOrdersPerStation, numberOfStations);
         }
 
         public async Task<double> CalculatePickToOrderHitRateAsync(
+            List<Order> orders, 
+            int maxSkusPerRack)
+        {
+            return await CalculatePickToOrderHitRateWithStationsAsync(orders, maxSkusPerRack, int.MaxValue, 1);
+        }
+
+        public async Task<double> CalculatePickToOrderHitRateWithStationsAsync(
             List<Order> orders, 
             int maxSkusPerRack,
             int maxOrdersPerStation = int.MaxValue,
