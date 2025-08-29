@@ -117,33 +117,33 @@ namespace Calculation.Service.Models
     }
 
     public class RackPresentation
-{
-    public int RackId { get; set; }
-    public int PresentationId { get; set; }
-    public List<string> AvailableSkus { get; set; } = new();
-    public int ItemsPickedFromThisRack { get; set; } // This is I_r_i in your formula
-    public List<PickedItem> PickedItems { get; set; } = new();
-}
+    {
+        public int RackId { get; set; }
+        public int PresentationId { get; set; }
+        public List<string> AvailableSkus { get; set; } = new();
+        public int ItemsPickedFromThisRack { get; set; } // This is I_r_i in your formula
+        public List<PickedItem> PickedItems { get; set; } = new();
+    }
 
-public class PickedItem
-{
-    public string Sku { get; set; } = string.Empty;
-    public int Quantity { get; set; }
-    public string OrderId { get; set; } = string.Empty;
-}
+    public class PickedItem
+    {
+        public string Sku { get; set; } = string.Empty;
+        public int Quantity { get; set; }
+        public string OrderId { get; set; } = string.Empty;
+    }
 
-public class PickToOrderResult
-{
-    public double HitRate { get; set; }
-    public int TotalItems { get; set; } // T in your formula
-    public int TotalRackPresentations { get; set; } // R in your formula
-    public List<RackPresentation> RackPresentations { get; set; } = new();
-    public int SumOfItemsPickedFromAllRacks { get; set; } // Σ(I_r_i) in your formula
-}
+    public class PickToOrderResult
+    {
+        public double HitRate { get; set; }
+        public int TotalItems { get; set; } // T in your formula
+        public int TotalRackPresentations { get; set; } // R in your formula
+        public List<RackPresentation> RackPresentations { get; set; } = new();
+        public int SumOfItemsPickedFromAllRacks { get; set; } // Σ(I_r_i) in your formula
+    }
 
-public enum PickingStrategy
-{
-    PickToOrder = 1,
-    PickToLine = 0
-}
+    public enum PickingStrategy
+    {
+        PickToOrder = 1,
+        PickToLine = 0
+    }
 }
