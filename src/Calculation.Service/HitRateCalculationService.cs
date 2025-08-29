@@ -50,6 +50,56 @@ namespace Calculation.Service.Services
             return hitRate;
         }
 
+        public async Task<double> CalculatePickToOrderHitRateAsync(
+            List<Order> orders, 
+            int maxSkusPerRack)
+        {
+            var startTime = DateTime.UtcNow;
+            _logger.LogInformation("Starting pick-to-order hit rate calculation with {OrderCount} orders", orders.Count);
+
+            // Group orders by customer and time to create order groups
+            var orderGroups = CreateOrderGroups(orders);
+            _logger.LogInformation("Created {GroupCount} order groups", orderGroups.Count);
+
+            // Create waves (batches of orders to process together)
+            var waves = CreateWaves(orderGroups);
+            _logger.LogInformation("Created {WaveCount} waves", waves.Count);
+
+            var totalOrderLines = 0;
+            var totalRackPresentations = 0;
+
+            foreach (var wave in waves)
+            {
+                var racks = CreateRacks(wave, maxSkusPerRack);
+                var waveOrderLines = 0;
+                var waveRackPresentations = 0;
+
+                // For each order in the wave, calculate how many rack presentations are needed
+                foreach (var orderGroup in wave.OrderGroups)
+                {
+                    var orderLines = orderGroup.OrderLines.Count;
+                    var requiredSkus = orderGroup.UniqueSkus;
+                    
+                    // Find how many racks are needed to fulfill this order
+                    var racksNeeded = racks.Where(r => r.Skus.Any(sku => requiredSkus.Contains(sku))).Count();
+                    
+                    waveOrderLines += orderLines;
+                    waveRackPresentations += racksNeeded;
+                }
+
+                totalOrderLines += waveOrderLines;
+                totalRackPresentations += waveRackPresentations;
+            }
+
+            var hitRate = totalRackPresentations > 0 ? (double)totalOrderLines / totalRackPresentations : 0;
+            var endTime = DateTime.UtcNow;
+            
+            _logger.LogInformation("Pick-to-order calculation complete. Hit rate: {HitRate}, Duration: {Duration}ms", 
+                hitRate, (endTime - startTime).TotalMilliseconds);
+
+            return hitRate;
+        }
+
         private List<OrderGroup> CreateOrderGroups(List<Order> orders)
         {
             return orders
