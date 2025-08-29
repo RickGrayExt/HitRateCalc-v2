@@ -87,15 +87,6 @@ namespace Calculation.Service.Models
             .ToList();
     }
 
-    public class RackPresentation
-    {
-        public int RackId { get; set; }
-        public int StationId { get; set; }
-        public List<string> AvailableSkus { get; set; } = new();
-        public int UnitsPicked { get; set; }
-        public List<OrderGroup> FulfilledOrders { get; set; } = new();
-    }
-
     public class HitRateResult
     {
         public double HitRate { get; set; }
