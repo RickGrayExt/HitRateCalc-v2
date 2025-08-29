@@ -62,49 +62,87 @@ namespace Calculation.Service.Services
             // Create racks based on unique SKUs in the wave
             var racks = CreateRacksForWave(wave, maxSkusPerRack);
             
-            // For Pick-to-Order: each order is processed individually
+            // Track which orders have been fully processed
+            var remainingOrders = wave.OrderGroups.ToList();
             var rackPresentations = new List<RackPresentation>();
             int presentationId = 1;
 
-            foreach (var orderGroup in wave.OrderGroups)
+            // Continue until all orders are fulfilled
+            while (remainingOrders.Any())
             {
-                var requiredSkus = orderGroup.UniqueSkus;
+                // Find the rack that can fulfill the most items from remaining orders
+                var bestRackForRound = FindBestRackForCurrentOrders(racks, remainingOrders);
                 
-                // Find racks that contain the required SKUs
-                var relevantRacks = racks.Where(r => r.Skus.Any(sku => requiredSkus.Contains(sku))).ToList();
-                
-                foreach (var rack in relevantRacks)
+                if (bestRackForRound.rack == null)
                 {
-                    var presentation = new RackPresentation
-                    {
-                        RackId = rack.RackId,
-                        PresentationId = presentationId++,
-                        AvailableSkus = rack.Skus.ToList()
-                    };
+                    // No more racks can fulfill any remaining orders - shouldn't happen in normal operation
+                    _logger.LogWarning("No rack found to fulfill remaining orders");
+                    break;
+                }
 
-                    // Calculate items picked from this rack for this order
+                var presentation = new RackPresentation
+                {
+                    RackId = bestRackForRound.rack.RackId,
+                    PresentationId = presentationId++,
+                    AvailableSkus = bestRackForRound.rack.Skus.ToList()
+                };
+
+                // Process each remaining order against this rack presentation
+                var itemsPickedFromThisPresentation = 0;
+                var ordersToRemove = new List<OrderGroup>();
+
+                foreach (var order in remainingOrders.ToList())
+                {
                     var itemsFromThisRack = 0;
-                    foreach (var orderLine in orderGroup.OrderLines)
+                    var allSkusFulfilled = true;
+
+                    // Check each order line against this rack
+                    foreach (var orderLine in order.OrderLines)
                     {
-                        if (rack.Skus.Contains(orderLine.Sku))
+                        if (bestRackForRound.rack.Skus.Contains(orderLine.Sku))
                         {
                             itemsFromThisRack += orderLine.Quantity;
                             presentation.PickedItems.Add(new PickedItem
                             {
                                 Sku = orderLine.Sku,
                                 Quantity = orderLine.Quantity,
-                                OrderId = orderGroup.OrderId
+                                OrderId = order.OrderId
                             });
+                        }
+                        else
+                        {
+                            allSkusFulfilled = false;
                         }
                     }
 
-                    presentation.ItemsPickedFromThisRack = itemsFromThisRack;
-                    
-                    // Only add presentation if items were actually picked
-                    if (itemsFromThisRack > 0)
+                    itemsPickedFromThisPresentation += itemsFromThisRack;
+
+                    // In Pick-to-Order, remove order only if ALL its SKUs can be fulfilled by this rack
+                    if (allSkusFulfilled)
                     {
-                        rackPresentations.Add(presentation);
+                        ordersToRemove.Add(order);
                     }
+                }
+
+                presentation.ItemsPickedFromThisRack = itemsPickedFromThisPresentation;
+                
+                // Only add presentation if items were actually picked
+                if (itemsPickedFromThisPresentation > 0)
+                {
+                    rackPresentations.Add(presentation);
+                }
+
+                // Remove fully fulfilled orders
+                foreach (var orderToRemove in ordersToRemove)
+                {
+                    remainingOrders.Remove(orderToRemove);
+                }
+
+                // Safety check to prevent infinite loops
+                if (!ordersToRemove.Any() && remainingOrders.Any())
+                {
+                    _logger.LogWarning("Unable to fulfill remaining orders - some SKUs may not be available on any rack");
+                    break;
                 }
             }
 
@@ -117,7 +155,27 @@ namespace Calculation.Service.Services
                 ? (double)result.SumOfItemsPickedFromAllRacks / result.TotalItems 
                 : 0;
 
+            _logger.LogInformation("Wave processed: {TotalPresentations} presentations, {ItemsPicked} items picked from racks, {TotalItems} total items, Hit Rate: {HitRate}", 
+                result.TotalRackPresentations, result.SumOfItemsPickedFromAllRacks, result.TotalItems, result.HitRate);
+
             return result;
+        }
+
+        private (Rack? rack, int potentialItems) FindBestRackForCurrentOrders(List<Rack> racks, List<OrderGroup> remainingOrders)
+        {
+            var bestRack = racks
+                .Select(rack => new
+                {
+                    Rack = rack,
+                    PotentialItems = remainingOrders
+                        .SelectMany(order => order.OrderLines)
+                        .Where(line => rack.Skus.Contains(line.Sku))
+                        .Sum(line => line.Quantity)
+                })
+                .OrderByDescending(x => x.PotentialItems)
+                .FirstOrDefault();
+
+            return bestRack != null ? (bestRack.Rack, bestRack.PotentialItems) : (null, 0);
         }
 
         private List<Rack> CreateRacksForWave(Wave wave, int maxSkusPerRack)
