@@ -126,7 +126,7 @@ namespace Calculation.Service.Services
             var waves = new List<Wave>();
             var currentWave = new Wave();
             
-            // Simple wave creation - group orders by hour
+            // Simple wave creation - group orders by 2 hours
             DateTime? currentHour = null;
 
             foreach (var orderGroup in orderGroups)
@@ -148,7 +148,7 @@ namespace Calculation.Service.Services
                     currentWave = new Wave
                     {
                         StartTime = orderHour,
-                        EndTime = orderHour.AddHours(1)
+                        EndTime = orderHour.AddHours(2)
                     };
                     currentHour = orderHour;
                 }
